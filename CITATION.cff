@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use (parts of) this analysis or data, please cite it as below."
+authors:
+- family-names: "Becker"
+  given-names: "Anton S."
+  orcid: "https://orcid.org/0000-0001-8372-6496"
+- family-names: "Erinjeri"
+  given-names: "Joseph"
+- family-names: "Kastango"
+  given-names: "Nicholas"
+title: "Radiology exam volume forecast repository"
+version: 1.0
+doi: 10.5281/zenodo.5699476
+date-released: 2017-12-18
+url: "https://github.com/ASBecker/exam_forecast"
+preferred-citation:
+  type: article
+  authors:
+  - family-names: "Becker"
+    given-names: "Anton S."
+    orcid: "https://orcid.org/0000-0001-8372-6496"
+  - family-names: "Erinjeri"
+    given-names: "Joseph P."
+  - family-names: "Chaim"
+    given-names: "Joshua"
+  - family-names: "Kastango"
+    given-names: "Nicholas"
+  - family-names: "Elnajjar"
+    given-names: "Pierre"
+  - family-names: "Hricak"
+    given-names: "Hedvig"
+  - family-names: "Vargas"
+    given-names: "H. Alberto"
+  doi: "10.1007/s10278-021-00532-4"
+  journal: "Journal of Digital Imaging"
+  title: "Automatic Forecasting of Radiology Examination Volume Trends for Optimal Resource Planning and Allocation"
+  year: 2021
