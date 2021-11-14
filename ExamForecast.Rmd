@@ -1,0 +1,471 @@
+---
+title: Automatic forecasting of radiology examination volume trends for optimal resource
+  planning and allocation
+authors:
+- name: Anton S. Becker 1
+  address: Department of Radiology, Body Imaging Service, Memorial Sloan Kettering
+  footnote: 1
+- name: Joseph P. Erinjeri
+  address: Department of Radiology, Interventional Radiology Service, Memorial Sloan
+- name: Joshua Chaim
+  address: Department of Radiology, Body Imaging Service, Memorial Sloan Kettering
+- name: Nicholas Kastango
+  address: Department of Strategy and Innovation, Memorial Sloan Kettering Cancer
+- name: Pierre Elnajjar
+  address: Department of Radiology, Radiology Informatics, Memorial Sloan Kettering
+- name: Hedvig Hricak
+  address: Department of Radiology, Chair, Memorial Sloan Kettering Cancer Center
+- name: H. Alberto Vargas
+  address: Department of Radiology, Body Imaging Service, Memorial Sloan Kettering
+thanks: | 
+    The authors would like to thank the editors and anonymous reviewers of the Journal of Digital Imaging who have contributed to the final published version of this article. 
+    ASB was partially funded by the Prof. Dr. Max Cloëtta Foundation (CH). The Department of Radiology of Memorial Sloan Kettering Cancer Center receives funding from the National Institutes of Health/National Cancer Institute Cancer Center Support Grant P30 CA008748. The funders had no role in study design, data collection, data analysis, interpretation, or writing of the report.
+date: "2021-10-30"
+output: rticles::springer_article
+journal: Journal of Digital Imaging
+footnote:
+- code: 1
+  text: Corresponding Author
+bibliography: worklist_forecast.bib
+csl: journal-of-digital-imaging.csl
+keywords:
+- clinical operations
+- examination volume
+- forecasting
+- machine learning
+- time series
+abstract: |
+  Objective: To evaluate the performance of the Prophet forecasting procedure, part of the Facebook open-source Artificial Intelligence portfolio, for forecasting variations in radiological examination volumes.
+  Methods: Daily CT and MRI examination volumes from our institution were extracted from the radiology information system (RIS) database. Data from January 1, 2015 to December 31, 2019 was used for training the Prophet algorithm and data from January 2020 was used for validation. Algorithm performance was then evaluated prospectively in February and August 2020. Total error and mean error per day were evaluated and computational time was logged using different Markov Chain Monte Carlo (MCMC) samples.
+  Results: Data from 610570 examinations were used for training; the majority were CTs (82.3%). During retrospective testing, prediction error was reduced from 19 to <1 per day in CT (total 589 to 17) and from 5 to <1 per day (total 144 to 27) in MRI by fine-tuning the Prophet procedure. Prospective prediction error in February was 10 per day in CT (9934 predicted, 9667 actual) and 1 per day in MRI (2484 predicted, 2457 actual) and was significantly better than manual weekly predictions (p=0.001). Inference with MCMC added no substantial improvements while vastly increasing computational time.
+  Discussion: Prophet accurately models weekly, seasonal and overall trends paving the way for optimal resource allocation for radiology exam acquisition and interpretation.
+always_allow_html: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+options(scipen = 999)
+options(tinytex.verbose = TRUE)
+
+library(tidyverse)
+library(magrittr)
+library(lubridate)
+library(prophet)
+library(knitr)
+library(kableExtra)
+library(here)
+
+source(here("holidays.R"))
+
+sum_na <- function(x) sum(x, na.rm = TRUE)
+is_weekend <- function(x) ifelse(weekdays(x) %in% c("Saturday", "Sunday"), TRUE, FALSE)
+
+prophet_colors <- c("#3A8DBE", "#91B6D0", "#1F487E")
+```
+
+Introduction
+============
+  
+Resource planning is a critical component of success in a radiology department. At a strategic level, the ability to accurately estimate future exam volumes is a crucial input to physician recruitment and retention strategies, which are especially essential in the context of increasing clinical demand and physician burnout [@harolds2016burnout]. At an operational level, radiologists’ roster is usually scheduled weeks to months in advance when the exact number and type of examinations to be performed is not known. “Coordinated visits”, where a patient attends the radiology department on the same day as their clinic appointment, add an additional layer to the planning process. These visits are increasingly popular as a tool for improving patient satisfaction, but create additional demands for immediate radiologist availability in order to produce results in a timely manner. Finally, while some useful information can be derived from an institution’s maximum “scanning capacity” (e.g. maximum number of exams that can be performed per scanner multiplied by the total number of scanners), the increasing recognition of the crucial value of re-interpretation of images submitted from outside institutions by subspecialized radiologists [@Gollub_Panicek_Bach_Penalver_Castellino_1999;@wibmer2015diagnosis;@d2015mehrwert;@woo2017assessment] places additional strain on a radiology department’s ability to deal with the clinical workload in a timely manner. 
+
+Forecasting is the process of using past data to make predictions about future states, usually by mathematical/statistical methods analyzing longitudinal time-series data. The field has made great progress on a technical level in the past years [@spiliotis2020comparison] and has become increasingly available and integrated within existing analytics software. These advances were fueled by a multitude of applications, for example stock prices in financial forecasting, or user fluctuations and server-load for web-based computer applications in information technology companies [@Tesauro_Jong_Das_Bennani_2006]. Similar to these applications, the number of radiology exams shares some strong seasonal and periodic characteristics, some of which may be obvious (e.g. holidays, weekdays vs. weekends), some less so (e.g. seasonal weather fluctuations). This lead to the hypothesis that a forecasting algorithm modeling daily, weekly, monthly and seasonal variations would be well-suited to predict radiology workload. The _Prophet_ procedure, which is part of the Facebook AI portfolio, is an open-source forecasting algorithm designed for such tasks.
+
+Hence, the purpose of this study was to prospectively evaluate the performance of the _Prophet_ forecasting algorithm for radiological examination volume, with the ultimate aim to aid with radiologist coverage planning.
+
+
+Material and Methods
+====================
+
+#### Data collection and experimental design
+
+This study was HIPAA-compliant and Institutional Review Board-exempt as an institutional quality improvement project. From our radiology information system, we first extracted all examinations in the body imaging service over a five-year period from January 1, 2015 through January 31, 2020. The sum of daily examinations without any individual patient identifiable information were retrieved on February 1, 2020 and served as a training dataset. The month of January 2020 was withheld during model training to validate and optimize the model.
+
+The reference method we used to compare against _Prophet_ was a weekly, manual procedure: A certain number of radiologists are on clinical shifts as a baseline coverage, then worklists were checked every Friday evening and radiologists moved to or from clinical assignments the following week based on the volume of unread examinations.
+
+#### Algorithm and software
+
+The Prophet algorithm is part of the Facebook (R) open-source AI portfolio (https://opensource.facebook.com/#artificial-intelligence). Prophet is a forecasting procedure based on an additive model fitting non-linear trends with daily, weekly and yearly effects [@Taylor_Letham_2018]. Furthermore, it allows for inclusion of relevant events such as major holidays. The Prophet implementation (v. 0.5) in R version 3.6.3 was used [@Rcore]. The full analysis together with non-patient-related, synthetic data is publicly available at https://github.com/ASBecker/exam_forecast.
+All computations were performed on a personal computer with a 3.5GhZ CPU (AMD (R) Ryzen Threadripper 1920X 12 Core) and 64GB RAM.
+
+#### Data analysis
+
+CT and MRI examinations were analyzed separately, since they are different assignments in our body imaging roster. Furthermore, the performance on in-house and external examinations (henceforth: 'second reads') was analyzed separately and combined. Inpatients were not analyzed separately since they only represent a small fraction of the overall volume, have less underlying variability and are covered by a constant number of radiologists due to the requirement for timely interpretation. 
+Final performance assessment of the best selected model was performed after four weeks using the data from February 1 - 29, 2020. Performance was measured by (1) the total sum of prediction error and (2) the mean prediction error per day. 
+Furthermore, we compared the residual sum of squares (RSS) between manual and _Prophet_ forecast with a paired Wilcoxon signed-rank sum test. A two-tailed alpha of 0.05 was used to indicate significant differences.
+
+Prophet allows for setting of various hyperparameters, most of which were left at the default settings after initial empirical trials. However, we evaluated the use of Bayesian inference using different numbers of Markov Chain Monte Carlo (MCMC) samples on our prospective test set. We evaluated the incremental accuracy by total error and mean error per day as well as the computational time needed.
+
+Results
+=======
+
+_Note that in this GitHub version of the manuscript only toy data will be used. For the original results please refer to the published article in the [Journal of Digital Imaging](https://doi.org/10.1007/s10278-021-00532-4)_
+``` {r GetResults, include=FALSE}
+
+per_diem_foreign <- here("Data", "per_diem_foreign.csv.gz") %>% read_csv()
+per_diem_msk <- here("Data", "per_diem_msk.csv.gz") %>% read_csv()
+
+per_diem <- full_join(
+  per_diem_msk, per_diem_foreign,
+  by = c("exam_date", "modality_code", "year")
+) %>%
+  mutate(n_exams = n_exams.x + n_exams.y) %>%
+  rename(
+    n_exams_msk = n_exams.x,
+    n_exams_foreign = n_exams.y
+  ) %>%
+  mutate_if(is.numeric, replace_na, replace = 0)
+
+pd_train <- per_diem %>% filter(exam_date < ymd("2020-01-01"))
+pd_valid <- per_diem %>% filter(
+  exam_date >= ymd("2020-01-01") & exam_date < ymd("2020-02-01")
+)
+pd_test <- per_diem %>% filter(exam_date >= ymd("2020-02-01"), exam_date <= ymd("2020-02-28"))
+```
+
+#### Data 
+
+The total number of examinations was `r sum_na(pd_train$n_exams)` (*Figure 1a*), of which `r sum_na(pd_train$n_exams_msk)` were performed at our institution and `r sum_na(pd_train$n_exams_foreign)` were second reads. The majority (`r ((pd_train %>% filter(modality_code=="CT") %>% pull(n_exams) %>% sum_na()) / (pd_train %>% pull(n_exams) %>% sum_na()) *100) %>% round(1)`%) were CTs, constituting `r pd_train %>% filter(modality_code=="CT") %>% pull(n_exams) %>% sum_na()` examinations (`r ((pd_train %>% filter(modality_code=="CT") %>% pull(n_exams_foreign) %>% sum_na()) / (pd_train %>% filter(modality_code=="CT") %>% pull(n_exams) %>% sum_na()) * 100) %>% round(1)`% second reads), whereas MRIs amounted to `r pd_train %>% filter(modality_code=="MR") %>% pull(n_exams) %>% sum_na()` (`r ((pd_train %>% filter(modality_code=="MR") %>% pull(n_exams_foreign) %>% sum_na()) / (pd_train %>% filter(modality_code=="MR") %>% pull(n_exams) %>% sum_na()) * 100) %>% round(1)`% second reads). 
+In the validation data (January 2020) there were `r sum_na(pd_valid$n_exams)` examinations, of which `r sum_na(pd_valid$n_exams_msk)` were performed at our institution and `r sum_na(pd_valid$n_exams_foreign)` were second reads. The majority (`r ((pd_valid %>% filter(modality_code=="CT") %>% pull(n_exams) %>% sum_na()) / (pd_valid %>% pull(n_exams) %>% sum_na()) *100) %>% round(1)`%) were again CTs with `r pd_valid %>% filter(modality_code=="CT") %>% pull(n_exams) %>% sum_na()` examinations (`r ((pd_valid %>% filter(modality_code=="CT") %>% pull(n_exams_foreign) %>% sum_na()) / (pd_valid %>% filter(modality_code=="CT") %>% pull(n_exams) %>% sum_na()) * 100) %>% round(1)`% second reads). There were `r pd_valid %>% filter(modality_code=="MR") %>% pull(n_exams) %>% sum_na()` MRIs (`r ((pd_valid %>% filter(modality_code=="MR") %>% pull(n_exams_foreign) %>% sum_na()) / (pd_valid %>% filter(modality_code=="MR") %>% pull(n_exams) %>% sum_na()) * 100) %>% round(1)`% second reads).
+
+#### Model selection
+
+``` {r ProphetBacktest, include = FALSE}
+
+msk_prophet <- function(df) {
+  m <- df %>%
+    transmute(
+      ds = exam_date %>% ymd() %>% as.POSIXct(),
+      y = n_exams,
+    ) %>%
+    prophet(holidays = get_us_holidays(begin_year = 2015, end_year = 2020))
+}
+
+join_backtest <- function(pred_df, ref_df, mod) {
+  pred_df <- pred_df %>%
+    left_join(
+      ref_df %>%
+        filter(modality_code == mod) %>%
+        mutate(ds = as_datetime(exam_date)) %>%
+        select(n_exams, ds),
+      by = "ds"
+    ) %>%
+    mutate(
+      hilo = ifelse(is_weekend(ds), yhat_lower, yhat_upper),
+      `Raw error` = yhat - n_exams,
+      `Prediction error` = hilo - n_exams,
+      raw_error = yhat - n_exams, #
+      pred_error = hilo - n_exams # for Rmd inline
+    )
+}
+
+### CT ###
+m_ct <- pd_train %>%
+  filter(modality_code == "CT") %>%
+  msk_prophet()
+
+pred_ct <- make_future_dataframe(m_ct, 31, "days", include_history = FALSE)
+
+forecast_ct <- predict(m_ct, pred_ct) %>%
+  join_backtest(pd_valid, "CT") %>%
+  filter(!is.na(pred_error))
+
+### MR ###
+m_mr <- pd_train %>%
+  filter(modality_code == "MR") %>%
+  msk_prophet()
+
+pred_mr <- make_future_dataframe(m_mr, 31, "days", include_history = FALSE)
+
+forecast_mr <- predict(m_mr, pred_mr) %>%
+  join_backtest(pd_valid, "MR") %>%
+  filter(!is.na(pred_error))
+
+comp_ct <- prophet_plot_components(m_ct, forecast_ct)
+```
+Data for the entire study period is shown in *Figure 1a*. Seasonal fluctuations and continuous growth can be appreciated, as well as “dips” around major holidays. Individual components of the _Prophet_ model are depicted in *Figure 1b-d*.
+
+``` {r Figure1a, echo=FALSE, fig.width=9, fig.height=4}
+ggplot(
+  bind_rows(pd_train, pd_valid) %>% mutate(Modality = modality_code),
+  aes(exam_date, n_exams, color = Modality)
+) +
+  geom_smooth(method = "loess", span = 0.05, se = FALSE) +
+  scale_color_manual(values = prophet_colors) +
+  ggtitle("a) Number of examinations over time") +
+  theme(legend.title = element_blank()) +
+  labs(x = "", y = "") +
+  theme_minimal()
+```
+
+``` {r Figure1b, echo=FALSE, fig.width=9, fig.height=3}
+comp_ct[[1]] +
+  ggtitle("b) Overall model component") +
+  theme_minimal() +
+  labs(x = "", y = "")
+```
+
+``` {r Figure1c, echo=FALSE, fig.width=9, fig.height=3}
+comp_ct[[3]] +
+  ggtitle("c) Weekly model component") +
+  theme_minimal() +
+  labs(y = "", x = "")
+```
+
+``` {r Figure1d, echo=FALSE, fig.width=9, fig.height=3}
+comp_ct[[4]] +
+  ggtitle("d) Yearly model component") +
+  theme_minimal() +
+  labs(y = "", x = "")
+```
+*Figure 1*: (a) smoothed curve of examination volume over a five-year period, showing an overall growth pattern as well as seasonal repeating patterns, which are detected by the model as shown in the trend decompositions in (b-d). The y-axis represents the effect of the respective seasonal component on the predicted y value.
+
+Backtesting of data from the last month of the training period (“backtest-month”) (*Figure 2*) showed that the prediction tended to underpredict during the week and overpredict on weekends. Since there is a clinical and operational penalty when reports are delayed, a slight over-allocation of radiologists on a given day is generally favored over under-allocation. Thus, rather than using the predicted point estimate, the upper bound of the prediction 80% confidence interval during weekdays and the lower bound on weekends (“hilo-estimate”) were selected. With this slight adjustment to the standard Prophet procedure the total prediction error for CT was reduced from a total of `r round(sum(forecast_ct$raw_error))` (mean `r round(mean(forecast_ct$raw_error))` examinations/`r abs(round(mean(forecast_ct$raw_error)/mean(forecast_ct$n_exams)*100, 1))`% per day) to `r round(sum(forecast_ct$pred_error))` examinations for the whole backtest-month (mean `r round(mean(forecast_ct$pred_error))` examinations/`r abs(round(mean(forecast_ct$pred_error)/mean(forecast_ct$n_exams)*100, 1))`% per day), and for MRI was reduced from a total of `r round(sum(forecast_mr$raw_error))` (mean `r round(mean(forecast_mr$raw_error))` examinations/ `r abs(round(mean(forecast_mr$raw_error)/mean(forecast_mr$n_exams)*100, 1))`% per day) to `r round(sum(forecast_mr$pred_error))` examinations for the whole month (mean `r round(mean(forecast_mr$pred_error))` examination/`r abs(round(mean(forecast_mr$pred_error)/mean(forecast_mr$n_exams)*100, 1))`% per day). A negative error means that more examinations were predicted than actually occurred, while a positive error means fewer examinations were predicted than actually occurred.
+
+``` {r Figure2, echo=FALSE, fig.width=9, fig.height=5}
+plot(m_ct, forecast_ct) +
+  labs(x = " ", y = " ") +
+  geom_point(
+    data = pd_valid %>%
+      filter(modality_code == "CT") %>%
+      mutate(ds = as_datetime(exam_date)),
+    aes(x = ds, y = n_exams)
+  ) +
+  ggtitle("Backtest: Daily examination prediction for January 2020") +
+  coord_cartesian(xlim = c(
+    as.POSIXct(ymd("2020-01-01")),
+    as.POSIXct(ymd("2020-01-31"))
+  )) +
+  theme_minimal()
+```
+*Figure 2*: Retrospective test for January predicted CT numbers (blue line) with 80% confidence interval (shaded blue area). Actual number of examinations on a given day are represented by the black points.
+
+#### Model evaluation: Forecast
+
+``` {r ProphetForecast, include = FALSE}
+
+days_sept <- as_date("2020-02-01") %--% as_date("2020-09-01") / days(1)
+
+### CT ###
+m_ctf <- pd_train %>%
+  rbind(pd_valid) %>%
+  filter(modality_code == "CT") %>%
+  msk_prophet()
+
+pred_ctf <- make_future_dataframe(m_ctf, 29, "days", include_history = FALSE)
+
+forecast_ctf <- predict(m_ctf, pred_ctf) %>%
+  join_backtest(pd_test, "CT")
+
+pred_ctf2 <- make_future_dataframe(m_ctf, days_sept, "days", include_history = FALSE)
+
+forecast_ctf2 <- predict(m_ctf, pred_ctf2) %>%
+  join_backtest(per_diem, "CT") %>%
+  filter(month(ds) == 8)
+
+### MR ###
+m_mrf <- pd_train %>%
+  rbind(pd_valid) %>%
+  filter(modality_code == "MR") %>%
+  msk_prophet()
+
+pred_mrf <- make_future_dataframe(m_mrf, 29, "days", include_history = FALSE)
+
+forecast_mrf <- predict(m_mrf, pred_mrf) %>%
+  join_backtest(pd_test, "MR")
+
+pred_mrf2 <- make_future_dataframe(m_mrf, days_sept, "days", include_history = FALSE)
+
+forecast_mrf2 <- predict(m_mrf, pred_mrf2) %>%
+  join_backtest(per_diem, "MR") %>%
+  filter(month(ds) == 8)
+
+# ---
+
+comp_ct <- prophet_plot_components(m_ctf, forecast_ctf)
+```
+The model was prospectively evaluated in the 4 weeks of February 2020 (test month), using all data until the end of January for training of the algorithm. Estimate of total CT examinations was `r round(sum_na(forecast_ctf$hilo))`, and actual number was `r sum_na(forecast_ctf$n_exams)` (mean error of `r round(mean(forecast_ctf$pred_error, na.rm=TRUE))` examinations/`r abs(round(mean(forecast_ctf$raw_error, na.rm=TRUE)/mean(forecast_ctf$n_exams, na.rm=TRUE)*100, 1))`% per day, illustrated in *Figure 3*); estimate of total MR examinations was `r round(sum_na(forecast_mrf$hilo))`, and actual number was `r sum_na(forecast_mrf$n_exams)` (mean error of `r round(mean(forecast_mrf$pred_error, na.rm=TRUE))` examinations/ `r abs(round(mean(forecast_mrf$raw_error, na.rm=TRUE)/mean(forecast_mrf$n_exams, na.rm=TRUE)*100, 1))`% per day).
+
+``` {r Figure3, echo=FALSE, fig.width=9, fig.height=5}
+plot(m_ctf, forecast_ctf) +
+  labs(x = " ", y = " ") +
+  geom_point(
+    data = pd_test %>%
+      filter(modality_code == "CT") %>%
+      mutate(ds = as_datetime(exam_date)),
+    aes(x = ds, y = n_exams)
+  ) +
+  ggtitle("Evaluation: Daily examination prediction for February 2020") +
+  coord_cartesian(xlim = c(
+    as.POSIXct(ymd("2020-02-02")),
+    as.POSIXct(ymd("2020-02-28"))
+  )) +
+  theme_minimal()
+```
+*Figure 3*: Prospective evaluation for February predicted CT numbers (blue line) with 80% confidence interval (shaded blue area). Actual number of examinations on a given day are represented by the black points.
+
+
+After the _severe acute respiratory syndrome coronavirus 2_ (SARS-CoV-2 or COVID-19) pandemic had led to an initial decrease in clinical activity from March to May and a subsequent rebound effect in June and July, the same model (trained with data until January 2020) was again tested prospectively in August 2020: Estimate of total CT examinations was `r round(sum_na(forecast_ctf2$yhat))`, and actual number was `r sum_na(forecast_ctf2$n_exams)` (mean error of `r round(mean(forecast_ctf2$raw_error, na.rm=TRUE))` examinations/`r abs(round(mean(forecast_ctf2$raw_error, na.rm=TRUE)/mean(forecast_ctf2$n_exams, na.rm=TRUE)*100, 1))`% per day); estimate of total MR examinations was `r round(sum_na(forecast_mrf2$yhat))`, and actual number was `r sum_na(forecast_mrf2$n_exams)` (mean error of `r round(mean(forecast_mrf2$raw_error, na.rm=TRUE))` examinations/ `r abs(round(mean(forecast_mrf2$raw_error, na.rm=TRUE)/mean(forecast_mrf2$n_exams, na.rm=TRUE)*100, 1))`% per day).
+
+#### Model evaluation: Markov Monte Carlo Chain
+
+MCMC data is not included in this online repository. Please refer to the final publication for the results of this part.
+
+``` {r MCMCeval, eval = FALSE, echo = FALSE}
+
+# MCMC data not included in  online repository. Please refer to final publication.
+
+# Functions ---------------------------------------------------------------
+
+get_errors <- function(pred, mod, ref, type = "pred", mean_or_total = "mean") {
+  pred %<>% mutate(
+    wdays = weekdays(ds),
+    hilo = ifelse(wdays %in% c("Saturday", "Sunday"),
+      yhat_lower, yhat_upper
+    ),
+    ds.chr = (ds %>% ymd() %>% as.character())
+  )
+  ref <- ref %>%
+    filter(modality_code == mod) %>%
+    mutate(ds.chr = as.character(exam_date))
+  fused <- left_join(pred, ref, by = "ds.chr")
+  fused %<>%
+    mutate(
+      diff_mean = n_exams - yhat,
+      diff_hilo = n_exams - hilo
+    ) %>%
+    filter(!is.na(diff_mean))
+
+  if (type == "pred") {
+    if (mean_or_total == "mean") {
+      return(fused$diff_mean %>% mean())
+    } else {
+      return(fused$diff_mean %>% sum())
+    }
+  } else if (type == "hilo") {
+    if (mean_or_total == "mean") {
+      return(fused$diff_hilo %>% mean())
+    } else {
+      return(fused$diff_hilo %>% sum())
+    }
+  }
+}
+
+kable_forecast <- function(x) {
+  x %>%
+    select(1, 2, 7:9) %>%
+    mutate_if(is.numeric, round, 2) %>%
+    rename(
+      `MCMC samples` = mcmc_samples,
+      Modality = modality,
+      `Total error` = totalerror_hilo,
+      `Mean error` = meanerror_hilo,
+      `Run time` = cpu_time,
+    ) %>%
+    kable() %>%
+    kable_styling(bootstrap_options = c("striped", "condensed"))
+}
+
+kable_forecast_all <- function(x) {
+  x %>%
+    select(1, 2, 7:10) %>%
+    pivot_wider(
+      names_from = exams,
+      values_from = c(totalerror_hilo, meanerror_hilo, cpu_time)
+    ) %>%
+    mutate_if(is.numeric, round, 2) %>%
+    rename(
+      `MCMC samples` = mcmc_samples,
+      Modality = modality,
+      `Total error ` = totalerror_hilo_Combined,
+      `Mean error ` = meanerror_hilo_Combined,
+      `Run time ` = cpu_time_Combined,
+      `Total error` = totalerror_hilo_Outside,
+      `Mean error` = meanerror_hilo_Outside,
+      `Run time` = cpu_time_Outside,
+      ` Total error` = totalerror_hilo_In_house,
+      ` Mean error` = meanerror_hilo_In_house,
+      ` Run time` = cpu_time_In_house
+    ) %>%
+    select(1, 2, 4, 7, 10, 5, 8, 11, 3, 6, 9) %>% # Rearrange cols
+    kable() %>%
+    kable_styling(bootstrap_options = c("striped", "condensed")) %>%
+    add_header_above(c(" " = 2, "In-house" = 3, "Outside (2nd reads)" = 3, "Combined" = 3))
+}
+
+# Analysis ----------------------------------------------------------------
+
+invisible(
+  list.files(pattern = "32k.Rda", full.names = TRUE) %>%
+    lapply(load, .GlobalEnv)
+)
+
+mcmc_all %<>%
+  mutate(
+    totalerror_pred = map2_dbl(backtest, modality, get_errors, per_diem, "pred", "total"),
+    meanerror_pred = map2_dbl(backtest, modality, get_errors, per_diem, "pred", "mean"),
+    totalerror_hilo = map2_dbl(backtest, modality, get_errors, per_diem, "hilo", "total"),
+    meanerror_hilo = map2_dbl(backtest, modality, get_errors, per_diem, "hilo", "mean"),
+    cpu_time = map_dbl(backtest, function(x) round(abs(first(x$benchmark) / 60), 1))
+  )
+
+mcmc_msk %<>%
+  mutate(
+    totalerror_pred = map2_dbl(backtest, modality, get_errors, per_diem_msk, "pred", "total"),
+    meanerror_pred = map2_dbl(backtest, modality, get_errors, per_diem_msk, "pred", "mean"),
+    totalerror_hilo = map2_dbl(backtest, modality, get_errors, per_diem_msk, "hilo", "total"),
+    meanerror_hilo = map2_dbl(backtest, modality, get_errors, per_diem_msk, "hilo", "mean"),
+    cpu_time = map_dbl(backtest, function(x) round(abs(first(x$benchmark) / 60), 1))
+  )
+
+mcmc_foreign %<>%
+  mutate(
+    totalerror_pred = map2_dbl(backtest, modality, get_errors, per_diem_foreign, "pred", "total"),
+    meanerror_pred = map2_dbl(backtest, modality, get_errors, per_diem_foreign, "pred", "mean"),
+    totalerror_hilo = map2_dbl(backtest, modality, get_errors, per_diem_foreign, "hilo", "total"),
+    meanerror_hilo = map2_dbl(backtest, modality, get_errors, per_diem_foreign, "hilo", "mean"),
+    cpu_time = map_dbl(backtest, function(x) round(abs(first(x$benchmark) / 60), 1))
+  )
+
+mcmc_tests <- bind_rows(
+  mcmc_all %>% mutate(exams = "Combined"),
+  mcmc_msk %>% mutate(exams = "In_house"),
+  mcmc_foreign %>% mutate(exams = "Outside")
+)
+
+mcmc_tests %>%
+  kable_forecast_all() %>%
+  kable_styling(latex_options = "scale_down")
+```
+
+
+Discussion
+==========
+
+In this study, we evaluated the use of the state-of-the-art forecasting _Prophet_ algorithm to predict radiology examination volumes. We found that the algorithm captures weekly, seasonal and overall trends and allows for better radiologist allocation compared to manual planning. Custom fine-tuning of the _Prophet_ procedure allowed us to tailor the forecasts to favor slight overestimation, whereas MCMC-sampling vastly increased computation time while not substantially increasing performance.
+
+Patient volume forecasting has been attempted in various settings, for example notoriously erratic emergency room visits and admissions, with modest success [@meldon2003brief]. Boyle et al. achieved a ~7% mean daily error of emergency room presentations, but only 11% error for daily admissions [@boyle2012predicting]. Similarly, Zhang et al. achieved a ~7% mean error [@zhang2020emergency] when modeling radiologic patient flow in an emergency room setting, whereas our fine-tuned _Prophet_ procedure had a daily mean error between 2.3 and 5.1%. The better performance is likely a compound effect of the more advanced technology used, the larger number of data points in our dataset and the majority of our examinations being planned outpatient appointments.
+In the radiological literature, the problem of no-shows and same-day cancellations has been thoroughly investigated in order to understand the reasons and propose new interventions to minimize them [@Rosenbaum_Mieloszyk_Hall_Hippe_Gunn_Bhargava_2018;@Speece_2019]. While Zhang et al. have recently studied examination volume in the emergency room of a hospital [@zhang2020emergency], there are no studies using machine learning for radiology examination volume forecasting and resource planning on a departmental level.
+
+Machine learning approaches fare better in high-volume settings with ample training data [@halevy2009unreasonable]. In our study, this was evident by the slightly lower performance when trying to predict second reads from outside CT examinations separately. _Prophet_ produced more accurate estimates when in-house examinations and outside reads were combined. This may be due to some co-correlation between the two distributions, i.e. when overall activity at an institution (e.g. outpatient clinic visits, inpatient census) is higher there will be both more in-house and outside examinations.
+
+The _Prophet_ procedure is designed specifically for time series forecasting tasks with strong periodic and seasonal effects [@Taylor_Letham_2018]. However, it may underperform in settings with simple periodic (i.e. quarterly) effects but  otherwise without strong seasonality [@Kourentzes_2017]. Papacharalampous and colleagues directly compared temperature and precipitation forecasts of _Prophet_ and other forecasting methods. They found that _Prophet_ outperformed naïve forecasts and yielded comparable results to other state-of-the-art forecasting algorithms [@papacharalampous2018predictability]. Furthermore, Zunic and colleagues recently demonstrated the versatility and robustness of the _Prophet_ procedure by applying it in a real-world environment (retail business) [@zunic2020application]. Our results are in line these findings. We expect our results to be reproducible in other bottleneck problems in healthcare with seasonal fluctuations, such as surgical procedures or radiotherapy treatments. Lastly, these methods may also prove useful in allotting resources in academic research, for example by forecasting occupancy of laboratory animal housing facilities or eligible patients for enrollment in clinical trials.
+
+#### Limitations
+
+There are several limitations that need to be considered. 
+First, this was a single center study. The robustness of the method and applicability to other settings will have to be investigated tailored to the individual institution's setting and the unique patient population they serve [@glover2017socioeconomic]. To facilitate this process, we provide ready-to-implement code in a public _GitHub_ repository with sample data, which needs to be swapped in order to train the model to the new institutional data.
+Second, we only investigated a single algorithm. Even more accurate forecasts may be possible with other methods, such as novel deep recurrent neural networks [@sahoo2019long]. However, deep neural networks require more computational resources for training and implementation for the planning routine is more difficult [@sahoo2019long]. More importantly, the accuracy of the current method was already suitable for resource planning without the use of such more computationally expensive tools.
+Third, _Prophet_ allows for limited addition of external information (i.e. holidays). Events that predictably lead to a "dip" in examinations such as maintenance of scanners would have to be manually factored in, unless they can be added as "custom holidays" (for example recurring annual conferences). This point is also relevant in the current situation: While this article is being written and under review, the COVID-19 pandemic is entering a second or third wave in many countries. In extraordinary situations such as these, of course, the information to predict scan volume lies completely outside of the historical data and cannot be modeled with traditional forecasting methods.
+
+#### Conclusion
+
+_Prophet_ produces accurate radiological examination volume predictions and is a useful tool for clinical operations planning.
+
+Conflicts of Interest
+==========
+
+The authors declare no competing interests.
+
+
+References {#references}
+==========

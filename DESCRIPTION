@@ -1,0 +1,37 @@
+Type: Compendium
+Package: Radiology exam volume forecast repository
+Title: Automatic forecasting of radiology examination volume trends 
+    for optimal resource planning and allocation
+Version: 1.0
+Authors@R: 
+    c(person(given = "Anton",
+             family = "Becker",
+             role = c("cre", "aut"),
+             email = "beckera1@mskcc.org",
+             comment = c(orcid = "0000-0001-8372-6496")),
+      person(given = "Joseph",
+             family = "Erinjeri",
+             role = "ctb"),
+      person(given = "Nicholas",
+             family = "Kastango",
+             role = "ctb"))
+Description: Companion analysis to the article published in
+    the Journal of Digital imaging (DOI:10.1007/s10278-021-00532-4)
+License: MIT + file LICENSE
+Depends: 
+    dplyr,
+    here,
+    kableExtra,
+    knitr,
+    lubridate,
+    magrittr,
+    prophet,
+    readr,
+    rmarkdown,
+    rticles,
+    skimr,
+    stringr,
+    tidyverse,
+    timeDate
+Encoding: UTF-8
+LazyData: true
